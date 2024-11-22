@@ -1,0 +1,75 @@
+# 引入 Mend 配置
+include:
+  project: 'cicd5551642/CICD'
+  file:
+    - mend.yaml
+
+# 設定一些環境變數
+variables:
+  MAVEN_OPTS: -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository  # 指定本地 Maven 倉庫路徑
+  MAVEN_CLI_OPTS: -DskipTests  # 忽略測試階段
+
+before_script:
+  - GRADLE_USER_HOME="$(pwd)/.gradle"
+  - export GRADLE_USER_HOME
+  - chmod +x ./pom/mvnw || true # 確保 mvnw 有執行權限
+  - apt-get update && apt-get install -y maven  # 安裝 Maven
+
+stages:
+  - build
+  - download
+  - mend_scan
+  - mend_reports
+
+### Maven 緩存設定
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .m2/repository  # Maven 依賴
+    - target  # Maven 生成的文件
+  policy: pull-push
+
+### Maven 建構步驟
+maven_build:
+   image: maven:3.8-openjdk-11  # 使用 Maven + OpenJDK 11 映像
+   stage: build
+   script:
+     - cd pom  # 進入 pom 資料夾
+     - ./mvnw $MAVEN_OPTS clean install $MAVEN_CLI_OPTS  # 使用 Maven Wrapper 執行 build
+   cache:
+     key: ${CI_COMMIT_REF_SLUG}  # 使用當前提交作為緩存鍵
+     paths:
+       - .m2/repository  # Maven 依賴緩存
+       - target  # Maven 生成的文件緩存
+     policy: push  # 構建後推送緩存
+   tags:
+     - gitlab-org-docker  # 使用合適的 runner 標籤
+
+# Mend 下載步驟
+.download_mend:
+  stage: download
+  extends: download_mend  # 繼承 Mend 的下載配置
+  tags:
+    - gitlab-org-docker
+
+# Mend 靜態分析
+.mend_sca:
+  stage: mend_scan
+  extends: mend_sca  # 繼承 Mend 的靜態代碼分析配置
+  allow_failure: true  # 允許分析階段失敗
+  cache:
+    key: "$CI_COMMIT_REF_NAME"
+    policy: pull  # 從緩存中下載依賴
+    paths:
+      - .m2/repository  # Maven 依賴
+      - target  # Maven 生成的文件
+  parallel:
+    matrix:
+      - INSTANCE: 1  # 這裡可以配置並行的 Mend 扫描實例
+  tags:
+    - gitlab-org-docker
+
+# Mend 報告階段
+.mend_reports:
+  stage: mend_reports
+  extends: mend_reports  # 繼承 Mend 的報告生成配置
