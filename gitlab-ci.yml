@@ -1,6 +1,6 @@
 # 引入 Mend 配置
 include:
-  project: 'cicd5551642/CICD'
+  project: '你的project路徑'
   file:
     - mend.yaml
 
